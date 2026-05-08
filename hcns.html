@@ -857,30 +857,7 @@ window._readCSV = function(input) {
   // Đọc dưới dạng ArrayBuffer thay vì Text
   reader.readAsArrayBuffer(file);
 };
-    // Render preview
-    document.getElementById('import-preview').style.display='block';
-    document.getElementById('import-count-badge').textContent=`${_importRows.length} nhân viên`;
-    document.getElementById('import-thead').innerHTML=`<tr>${['Tên','Mã NV','Bộ phận','Chức vụ','Ngày vào','Phép/năm','Phép còn'].map(h=>`<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;white-space:nowrap">${h}</th>`).join('')}</tr>`;
-    document.getElementById('import-tbody').innerHTML=_importRows.map(r=>`
-      <tr style="background:${r._ok?'#fff':'#fffbeb'}">
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;font-size:12px">${r.ten}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.ma_nv||'—'}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px">
-          <span style="padding:2px 8px;border-radius:20px;font-size:11px;${r._ok?'background:#eff6ff;color:#1e4d8c':'background:#fef9ec;color:#b45309'}">${r.bo_phan_ten||'—'}</span>
-        </td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.chuc_vu||'—'}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.ngay_vao||'—'}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">${r.phep_nam}</td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">${r.phep_con}</td>
-      </tr>`).join('');
-    const warnEl=document.getElementById('import-warn');
-    if(warns.length){warnEl.style.display='block';warnEl.innerHTML='⚠️ Lưu ý:<br>'+warns.join('<br>');}
-    else{warnEl.style.display='none';}
-    document.getElementById('import-confirm-btn').style.display=_importRows.length?'block':'none';
-  };
-  reader.onload = function(e) { /* giữ nguyên nội dung xử lý */ };
-  reader.readAsText(file, 'UTF-8');
-};
+   
 window._doImport=async function(){
   if(!_importRows.length)return;
   if(!confirm(`Nhập ${_importRows.length} nhân viên vào hệ thống?`))return;
