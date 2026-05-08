@@ -212,6 +212,18 @@ async function loadBoPhan(){const snap=await getDocs(query(collection(db,'bo_pha
 async function loadNhanVien(){const snap=await getDocs(collection(db,'nhan_vien'));S.nhanVien=snap.docs.map(d=>({id:d.id,...d.data()}));}
 async function loadChamCong(){const key=`${S.selectedNam}-${String(S.selectedThang).padStart(2,'0')}`;try{const snap=await getDocs(collection(db,`cham_cong/${key}/records`));S.chamCong={};snap.docs.forEach(d=>{S.chamCong[d.id]=d.data();});}catch(e){S.chamCong={};}}
 async function loadNgayLe(){const snap=await getDocs(collection(db,'ngay_le'));S.ngayLe=snap.docs.map(d=>({id:d.id,...d.data()}));}
+async function saveTruc(nvId, gioTruc){
+  const key=`${S.selectedNam}-${String(S.selectedThang).padStart(2,'0')}`;
+  const k=`truc_${nvId}`;
+  if(!gioTruc || gioTruc<=0){
+    await deleteDoc(doc(db,`cham_cong/${key}/records`,k));
+    delete S.chamCong[k];
+  } else {
+    const data={nv_id:nvId, gio_truc:gioTruc, cap_nhat:new Date().toISOString()};
+    await setDoc(doc(db,`cham_cong/${key}/records`,k),data);
+    S.chamCong[k]=data;
+  }
+}
 async function saveCC(nvId,ngay,ma,ghiChu=''){const key=`${S.selectedNam}-${String(S.selectedThang).padStart(2,'0')}`;const k=`${nvId}_${ngay}`;if(!ma){await deleteDoc(doc(db,`cham_cong/${key}/records`,k));delete S.chamCong[k];}else{const data={nv_id:nvId,ngay,ky_hieu:ma,ghi_chu:ghiChu,cap_nhat:new Date().toISOString()};await setDoc(doc(db,`cham_cong/${key}/records`,k),data);S.chamCong[k]=data;}}
 
 // ── LOGIN ──
@@ -300,25 +312,118 @@ function pgChamCong(){
   const thOpts=Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}" ${m===th?'selected':''}>${String(m).padStart(2,'0')}/${nam}</option>`).join('');
   const bpTabs=S.boPhan.map(b=>`<button class="bp-tab ${sbp===b.id?'active':''}" onclick="window._selBP('${b.id}')">${b.ten_bo_phan}</button>`).join('');
   const dayHdrs=days.map(d=>{const dw=new Date(nam,th-1,d).getDay();const isWE=dw===0||dw===6;const isHL=S.ngayLe.some(l=>l.ngay===`${nam}-${String(th).padStart(2,'0')}-${String(d).padStart(2,'0')}`);const lbl=['CN','T2','T3','T4','T5','T6','T7'][dw];return`<th class="day-header ${isWE?'weekend':''} ${isHL?'holiday':''}" title="${lbl}">${d}</th>`;}).join('');
-  const rows=nvs.map(nv=>{
-    let tong=0,phep=0,vang=0,vp=0;
-    const cells=days.map(d=>{const k=`${nv.id}_${d}`;const cc=S.chamCong[k];const ma=cc?.ky_hieu||'';tong+=tinhCong(ma);phep+=tinhPhep(ma);if(ma==='KL')vang++;if(['ĐT','ĐP','VS','KVS'].includes(ma))vp++;return`<td class="cc-cell" onclick="window._openCell('${nv.id}',${d})" title="${cc?.ghi_chu||''}"><span class="cc-badge" style="${khStyle(ma)}">${ma||'·'}</span></td>`;}).join('');
-    return`<tr><td class="nv-name-cell">${nv.ten}</td>${cells}<td class="sum-cell">${tong}</td><td class="sum-cell phep">${phep}</td><td class="sum-cell vang">${vang}</td><td class="sum-cell vipham">${vp}</td></tr>`;
+const rows=nvs.map(nv=>{
+  let tong=0,phep=0,vang=0,vp=0;
+  const cells=days.map(d=>{
+    const k=`${nv.id}_${d}`;
+    const cc=S.chamCong[k];
+    const ma=cc?.ky_hieu||'';
+    tong+=tinhCong(ma);
+    phep+=tinhPhep(ma);
+    if(ma==='KL')vang++;
+    if(['ĐT','ĐP','VS','KVS'].includes(ma))vp++;
+    return`<td class="cc-cell" onclick="window._openCell('${nv.id}',${d})" title="${cc?.ghi_chu||''}"><span class="cc-badge" style="${khStyle(ma)}">${ma||'·'}</span></td>`;
   }).join('');
+
+  // Lấy giờ trực đã lưu
+  const trucKey = `truc_${nv.id}`;
+  const gioTruc = S.chamCong[trucKey]?.gio_truc || 0;
+  const congTruc = gioTruc / 8;
+  const tongCongTinh = tong + congTruc;
+
+  return`<tr>
+    <td class="nv-name-cell">${nv.ten}</td>
+    ${cells}
+    <td class="sum-cell">${tong}</td>
+    <td class="sum-cell phep">${phep}</td>
+    <td class="sum-cell vang">${vang}</td>
+    <td class="sum-cell vipham">${vp}</td>
+    <td class="sum-cell" style="color:#0f766e;padding:3px 6px">
+      <input type="number" min="0" max="999" step="0.5"
+        value="${gioTruc||''}"
+        placeholder="0"
+        style="width:56px;border:1.5px solid #d1fae5;border-radius:6px;padding:3px 6px;font-size:12px;font-weight:600;color:#0f766e;text-align:center;outline:none;font-family:inherit;background:#f0fdf4"
+        onchange="window._saveTruc('${nv.id}',this.value)"
+        onclick="event.stopPropagation()"
+      />
+    </td>
+    <td class="sum-cell" style="color:#7c3aed;font-size:13px;font-weight:700">${tongCongTinh.toFixed(2).replace(/\.00$/,'')}</td>
+  </tr>`;
+}).join('');
   return`<div class="cc-wrap">
     <div class="cc-toolbar">
       <div class="bp-tabs">${bpTabs||'<span style="color:#94a3b8;font-size:13px">Chưa có bộ phận — hãy thêm bộ phận trước</span>'}</div>
       <div class="cc-controls">
         <select class="sel-thang" onchange="window._selThang(this.value)">${thOpts}</select>
         <button class="btn-icon" onclick="window._fillMonth()">✨ Điền X tháng</button>
+        <button class="btn-bulk" onclick="window._openBulk()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">☑️ Điểm danh hàng loạt</button>
       </div>
     </div>
     ${nvs.length===0?'<div class="empty-state">Bộ phận này chưa có nhân viên</div>':`
     <div class="cc-table-wrap"><table class="cc-table">
-      <thead><tr><th class="nv-header">Nhân viên</th>${dayHdrs}<th class="sum-header">Công</th><th class="sum-header" style="color:#f59e0b">Phép</th><th class="sum-header" style="color:#ef4444">KL</th><th class="sum-header" style="color:#f97316">VP</th></tr></thead>
+      <thead><tr><th class="nv-header">Nhân viên</th>${dayHdrs}
+      <th class="sum-header">Công</th>
+      <th class="sum-header" style="color:#f59e0b">Phép</th>
+      <th class="sum-header" style="color:#ef4444">KL</th>
+      <th class="sum-header" style="color:#f97316">VP</th>
+      <th class="sum-header" style="color:#0f766e">Giờ trực</th>
+      <th class="sum-header" style="color:#7c3aed;min-width:70px">Tổng công tính</th></thead>
       <tbody>${rows}</tbody>
     </table></div>`}
   </div>
+  <div class="modal-overlay" id="bulk-modal" style="display:none" onclick="if(event.target.id==='bulk-modal')window._closeBulk()">
+  <div class="modal-box" style="max-width:580px;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <span>☑️ Điểm danh hàng loạt</span>
+      <button class="modal-close" onclick="window._closeBulk()">✕</button>
+    </div>
+    <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Chọn nhân viên</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <button onclick="window._bulkSelAll(true)" style="font-size:12px;padding:5px 12px;background:#eff6ff;color:#1e4d8c;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit">✅ Chọn tất cả</button>
+          <button onclick="window._bulkSelAll(false)" style="font-size:12px;padding:5px 12px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;font-family:inherit">☐ Bỏ chọn</button>
+        </div>
+        <div id="bulk-nv-list" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Từ ngày</div>
+          <input type="number" id="bulk-from" min="1" max="31" value="1"
+            style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Đến ngày</div>
+          <input type="number" id="bulk-to" min="1" max="31" value="31"
+            style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;outline:none"/>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Chọn ký hiệu áp dụng</div>
+        <div id="bulk-kh-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px"></div>
+        <div style="margin-top:8px;font-size:13px;color:#475569">Đang chọn: <strong id="bulk-kh-show" style="color:#1e4d8c">— Chưa chọn —</strong></div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:13px;color:#475569;display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="bulk-skip" checked style="accent-color:#1e4d8c;width:15px;height:15px"/>
+          Bỏ qua ô đã có ký hiệu (an toàn)
+        </label>
+      </div>
+
+      <div style="background:#fef9ec;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e">
+        ⚠️ Nếu bỏ tích "bỏ qua", tất cả ô trong khoảng sẽ bị ghi đè.
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="window._closeBulk()">Huỷ</button>
+      <button class="btn-primary" onclick="window._applyBulk()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9)">✅ Áp dụng</button>
+    </div>
+  </div>
+</div>
   <div class="modal-overlay" id="cell-modal" style="display:none" onclick="if(event.target.id==='cell-modal')window._closeCellF()">
     <div class="modal-box">
       <div class="modal-header"><span id="modal-title">Chọn ký hiệu</span><button class="modal-close" onclick="window._closeCellF()">✕</button></div>
@@ -332,7 +437,20 @@ let _cNv,_cNg;
 window._openCell=function(nv,ng){_cNv=nv;_cNg=ng;const n=S.nhanVien.find(x=>x.id===nv);document.getElementById('modal-title').textContent=`${n?.ten||''} — Ngày ${ng}`;document.getElementById('modal-note').value=S.chamCong[`${nv}_${ng}`]?.ghi_chu||'';document.getElementById('cell-modal').style.display='flex';};
 window._closeCellF=function(){document.getElementById('cell-modal').style.display='none';};
 window._pickKH=async function(ma){const note=document.getElementById('modal-note').value;window._closeCellF();await saveCC(_cNv,_cNg,ma,note);showToast(ma?'Đã lưu ký hiệu ✓':'Đã xóa ký hiệu');rePb();};
-window._fillMonth=async function(){
+window._saveTruc=async function(nvId, val){
+  const gio = parseFloat(val)||0;
+  await saveTruc(nvId, gio);
+  // Tính lại và cập nhật ô Tổng công tính ngay lập tức
+  const trucKey=`truc_${nvId}`;
+  const gioTruc=S.chamCong[trucKey]?.gio_truc||0;
+  const dim=new Date(S.selectedNam,S.selectedThang,0).getDate();
+  const days=[...Array(dim).keys()].map(i=>i+1);
+  let tong=0;
+  days.forEach(d=>{const ma=S.chamCong[`${nvId}_${d}`]?.ky_hieu||'';tong+=tinhCong(ma);});
+  const tongTinh=tong+(gioTruc/8);
+  showToast(`Đã lưu ${gioTruc}h trực → +${(gioTruc/8).toFixed(2)} công ✓`);
+};
+  window._fillMonth=async function(){
   const nvs=S.nhanVien.filter(n=>n.bo_phan_id===S.selectedBoPhan);
   if(!nvs.length)return;
   if(!confirm(`Điền X cho ${nvs.length} nhân viên — các ngày thường chưa có ký hiệu?`))return;
@@ -363,6 +481,7 @@ function pgNhanVien(){
         <input class="search-input" type="text" placeholder="🔍 Tìm tên, mã NV..." value="${S._nvSearch}" oninput="window._searchNV(this.value)"/>
         <select class="sel-bp" onchange="window._filterBP(this.value)">${bpOpts}</select>
       </div>
+      <button onclick="window._openImport()" style="background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">📥 Import CSV</button>
       <button class="btn-primary" onclick="window._addNV()">+ Thêm nhân viên</button>
     </div>
     <div class="table-wrap"><table class="data-table">
@@ -384,7 +503,60 @@ function pgNhanVien(){
       </div>
       <div class="modal-actions"><button class="btn-secondary" onclick="window._closeNVF()">Huỷ</button><button class="btn-primary" onclick="window._saveNV()">Lưu</button></div>
     </div>
-  </div>`;
+  </div>
+  <div class="modal-overlay" id="import-modal" style="display:none" onclick="if(event.target.id==='import-modal')window._closeImport()">
+  <div class="modal-box" style="max-width:640px;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <span>📥 Import nhân sự từ CSV</span>
+      <button class="modal-close" onclick="window._closeImport()">✕</button>
+    </div>
+    <div style="padding:16px 20px;display:flex;flex-direction:column;gap:16px">
+
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px">
+        <div style="font-size:13px;font-weight:600;color:#1e4d8c;margin-bottom:8px">📋 Định dạng file CSV yêu cầu:</div>
+        <div style="font-size:12px;color:#475569;line-height:1.8;font-family:monospace;background:#fff;border-radius:6px;padding:10px;border:1px solid #dbeafe">
+          ten,ma_nv,bo_phan,chuc_vu,ngay_vao,phep_nam,phep_con<br/>
+          Nguyễn Văn A,NV001,Kỹ thuật,Nhân viên,2024-01-15,12,12<br/>
+          Trần Thị B,NV002,Kinh doanh,Trưởng nhóm,2023-06-01,14,10
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button onclick="window._downloadTemplate()" style="font-size:12px;padding:6px 14px;background:#1e4d8c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">⬇️ Tải file mẫu</button>
+          <span style="font-size:11px;color:#64748b;align-self:center">* Cột "ten" và "bo_phan" là bắt buộc</span>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Chọn file CSV</div>
+        <div style="border:2px dashed #cbd5e1;border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:all .2s;background:#fafafa"
+             onclick="document.getElementById('csv-file-input').click()"
+             id="drop-zone">
+          <div style="font-size:28px;margin-bottom:8px">📂</div>
+          <div style="font-size:13px;font-weight:500;color:#475569">Click để chọn file CSV</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px">hoặc kéo thả vào đây</div>
+          <input type="file" id="csv-file-input" accept=".csv,.txt" style="display:none" onchange="window._readCSV(this)"/>
+        </div>
+      </div>
+
+      <div id="import-preview" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Xem trước dữ liệu</div>
+          <span id="import-count-badge" style="font-size:12px;background:#dcfce7;color:#166534;padding:2px 10px;border-radius:20px;font-weight:600"></span>
+        </div>
+        <div style="overflow-x:auto;border-radius:10px;border:1px solid #e2e8f0;max-height:240px;overflow-y:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff">
+            <thead id="import-thead" style="background:#f8fafc;position:sticky;top:0"></thead>
+            <tbody id="import-tbody"></tbody>
+          </table>
+        </div>
+        <div id="import-warn" style="margin-top:8px;font-size:12px;color:#b45309;background:#fef9ec;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;display:none"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="window._closeImport()">Huỷ</button>
+      <button id="import-confirm-btn" style="display:none;background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit" onclick="window._doImport()">📥 Nhập dữ liệu</button>
+    </div>
+  </div>
+</div>`;
 }
 window._addNV=function(){S._editNV={};S._showNVM=true;rePb();};
 window._editNV=function(id){S._editNV={...S.nhanVien.find(n=>n.id===id)};S._showNVM=true;rePb();};
@@ -497,6 +669,164 @@ window._exportCSV=function(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`cham_cong_T${th}_${nam}.csv`;a.click();URL.revokeObjectURL(url);
   showToast('Đã xuất file CSV ✓');
+};
+// ── BULK ATTENDANCE ──
+let _bulkKH='';
+window._openBulk=function(){
+  _bulkKH='';
+  const nvs=S.nhanVien.filter(n=>n.bo_phan_id===S.selectedBoPhan);
+  const dim=new Date(S.selectedNam,S.selectedThang,0).getDate();
+  document.getElementById('bulk-to').value=dim;
+  document.getElementById('bulk-from').value=1;
+  document.getElementById('bulk-kh-show').textContent='— Chưa chọn —';
+  // Render danh sách NV
+  document.getElementById('bulk-nv-list').innerHTML=nvs.length
+    ? nvs.map(nv=>`
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 8px;border-radius:6px;transition:background .15s"
+               onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+          <input type="checkbox" class="bulk-nv-cb" value="${nv.id}" checked
+                 style="width:15px;height:15px;accent-color:#1e4d8c;cursor:pointer"/>
+          <span style="font-size:13px;font-weight:500">${nv.ten}</span>
+          <span style="font-size:11px;color:#94a3b8">${nv.chuc_vu||''}</span>
+        </label>`).join('')
+    : '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:12px">Không có nhân viên trong bộ phận này</div>';
+  // Render lưới ký hiệu
+  document.getElementById('bulk-kh-grid').innerHTML=KY_HIEU.filter(k=>k.ma).map(k=>`
+    <button id="bkh-${k.ma.replace('/','_')}"
+      style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 4px;border:2px solid transparent;border-radius:8px;cursor:pointer;font-family:inherit;background:${k.mau};color:${k.text};opacity:.6;transition:all .15s"
+      onclick="window._bulkPickKH('${k.ma}')">
+      <span style="font-size:13px;font-weight:700">${k.label}</span>
+      <span style="font-size:9px;text-align:center;line-height:1.2;opacity:.9">${k.ten}</span>
+    </button>`).join('');
+  document.getElementById('bulk-modal').style.display='flex';
+};
+window._closeBulk=function(){document.getElementById('bulk-modal').style.display='none';};
+window._bulkSelAll=function(v){document.querySelectorAll('.bulk-nv-cb').forEach(cb=>cb.checked=v);};
+window._bulkPickKH=function(ma){
+  _bulkKH=ma;
+  document.getElementById('bulk-kh-show').textContent=ma;
+  document.querySelectorAll('[id^="bkh-"]').forEach(btn=>{btn.style.opacity='.6';btn.style.border='2px solid transparent';});
+  const el=document.getElementById('bkh-'+ma.replace('/','_'));
+  if(el){el.style.opacity='1';el.style.border='2px solid rgba(0,0,0,.4)';}
+};
+window._applyBulk=async function(){
+  if(!_bulkKH){alert('Vui lòng chọn ký hiệu trước!');return;}
+  const from=parseInt(document.getElementById('bulk-from').value)||1;
+  const to=parseInt(document.getElementById('bulk-to').value)||31;
+  const dim=new Date(S.selectedNam,S.selectedThang,0).getDate();
+  const toReal=Math.min(to,dim);
+  const skip=document.getElementById('bulk-skip').checked;
+  const nvIds=[...document.querySelectorAll('.bulk-nv-cb:checked')].map(cb=>cb.value);
+  if(!nvIds.length){alert('Vui lòng chọn ít nhất 1 nhân viên!');return;}
+  if(from>toReal){alert('Ngày bắt đầu phải nhỏ hơn ngày kết thúc!');return;}
+  if(!confirm(`Áp dụng "${_bulkKH}" cho ${nvIds.length} NV, ngày ${from}→${toReal}?`))return;
+  window._closeBulk();
+  document.getElementById('pb').innerHTML='<div class="empty-state" style="padding:48px"><div class="spinner" style="margin:0 auto 16px"></div>Đang áp dụng điểm danh hàng loạt...</div>';
+  let count=0;
+  for(const nvId of nvIds){
+    for(let d=from;d<=toReal;d++){
+      const k=`${nvId}_${d}`;
+      if(skip && S.chamCong[k]?.ky_hieu)continue;
+      await saveCC(nvId,d,_bulkKH,'');
+      count++;
+    }
+  }
+  showToast(`Đã điền ${count} ô "${_bulkKH}" ✓`);
+  rePb();
+};  
+
+  // ── IMPORT CSV ──
+let _importRows=[];
+window._openImport=function(){
+  _importRows=[];
+  document.getElementById('import-preview').style.display='none';
+  document.getElementById('import-confirm-btn').style.display='none';
+  document.getElementById('csv-file-input').value='';
+  document.getElementById('import-modal').style.display='flex';
+};
+window._closeImport=function(){document.getElementById('import-modal').style.display='none';};
+window._downloadTemplate=function(){
+  const csv='\uFEFFten,ma_nv,bo_phan,chuc_vu,ngay_vao,phep_nam,phep_con\nNguyễn Văn A,NV001,Kỹ thuật,Nhân viên,2024-01-15,12,12\nTrần Thị B,NV002,Kinh doanh,Trưởng nhóm,2023-06-01,14,10\n';
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mau_import_nhansu.csv';a.click();
+};
+window._readCSV=function(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const text=e.target.result;
+    // Tự động detect separator
+    const sep=text.includes('\t')?'\t':',';
+    const lines=text.split(/\r?\n/).filter(l=>l.trim());
+    if(lines.length<2){alert('File CSV phải có ít nhất 1 dòng dữ liệu!');return;}
+    const headers=lines[0].split(sep).map(h=>h.trim().replace(/^\uFEFF/,'').toLowerCase());
+    const tenIdx=headers.indexOf('ten');
+    const bpIdx=headers.indexOf('bo_phan');
+    if(tenIdx===-1){alert('Thiếu cột "ten" trong file CSV!');return;}
+    if(bpIdx===-1){alert('Thiếu cột "bo_phan" trong file CSV!');return;}
+    const maIdx=headers.indexOf('ma_nv');
+    const cvIdx=headers.indexOf('chuc_vu');
+    const ngayIdx=headers.indexOf('ngay_vao');
+    const pnIdx=headers.indexOf('phep_nam');
+    const pcIdx=headers.indexOf('phep_con');
+    _importRows=[];
+    const warns=[];
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,''));
+      const ten=cols[tenIdx]||'';
+      const bpTen=cols[bpIdx]||'';
+      if(!ten){warns.push(`Dòng ${i+1}: Bỏ qua vì thiếu tên`);continue;}
+      const bp=S.boPhan.find(b=>b.ten_bo_phan.toLowerCase()===bpTen.toLowerCase());
+      if(!bp){warns.push(`Dòng ${i+1}: Bộ phận "${bpTen}" không tồn tại trong hệ thống — sẽ để trống`);} 
+      _importRows.push({
+        ten,
+        ma_nv:maIdx>=0?cols[maIdx]||'':'',
+        bo_phan_id:bp?.id||'',
+        bo_phan_ten:bpTen,
+        chuc_vu:cvIdx>=0?cols[cvIdx]||'':'',
+        ngay_vao:ngayIdx>=0?cols[ngayIdx]||'':'',
+        phep_nam:parseInt(pnIdx>=0?cols[pnIdx]:'')||12,
+        phep_con:parseInt(pcIdx>=0?cols[pcIdx]:'')||12,
+        _ok:!!bp
+      });
+    }
+    // Render preview
+    document.getElementById('import-preview').style.display='block';
+    document.getElementById('import-count-badge').textContent=`${_importRows.length} nhân viên`;
+    document.getElementById('import-thead').innerHTML=`<tr>${['Tên','Mã NV','Bộ phận','Chức vụ','Ngày vào','Phép/năm','Phép còn'].map(h=>`<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;white-space:nowrap">${h}</th>`).join('')}</tr>`;
+    document.getElementById('import-tbody').innerHTML=_importRows.map(r=>`
+      <tr style="background:${r._ok?'#fff':'#fffbeb'}">
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;font-size:12px">${r.ten}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.ma_nv||'—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px">
+          <span style="padding:2px 8px;border-radius:20px;font-size:11px;${r._ok?'background:#eff6ff;color:#1e4d8c':'background:#fef9ec;color:#b45309'}">${r.bo_phan_ten||'—'}</span>
+        </td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.chuc_vu||'—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.ngay_vao||'—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">${r.phep_nam}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">${r.phep_con}</td>
+      </tr>`).join('');
+    const warnEl=document.getElementById('import-warn');
+    if(warns.length){warnEl.style.display='block';warnEl.innerHTML='⚠️ Lưu ý:<br>'+warns.join('<br>');}
+    else{warnEl.style.display='none';}
+    document.getElementById('import-confirm-btn').style.display=_importRows.length?'block':'none';
+  };
+  reader.readAsText(file,'UTF-8');
+};
+window._doImport=async function(){
+  if(!_importRows.length)return;
+  if(!confirm(`Nhập ${_importRows.length} nhân viên vào hệ thống?`))return;
+  window._closeImport();
+  document.getElementById('pb').innerHTML='<div class="empty-state" style="padding:48px"><div class="spinner" style="margin:0 auto 16px"></div>Đang nhập dữ liệu...</div>';
+  let ok=0;
+  for(const row of _importRows){
+    const data={ten:row.ten,bo_phan_id:row.bo_phan_id,ma_nv:row.ma_nv,chuc_vu:row.chuc_vu,ngay_vao:row.ngay_vao,phep_nam:row.phep_nam,phep_con:row.phep_con};
+    const r=await addDoc(collection(db,'nhan_vien'),data);
+    S.nhanVien.push({id:r.id,...data});
+    ok++;
+  }
+  showToast(`Đã nhập ${ok} nhân viên thành công ✓`);
+  rePb();
 };
 </script>
 </body>
