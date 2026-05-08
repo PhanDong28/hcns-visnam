@@ -753,36 +753,51 @@ window._downloadTemplate=function(){
 window._readCSV = function(input) {
   const file = input.files[0];
   if (!file) return;
-
-  // Đọc dưới dạng ArrayBuffer để tự detect encoding
   const reader = new FileReader();
   reader.onload = function(e) {
     const buffer = e.target.result;
     const uint8 = new Uint8Array(buffer);
 
-    // Kiểm tra BOM để biết encoding
+    // Danh sách encoding thử theo thứ tự
+    const encodings = ['utf-8', 'windows-1252', 'utf-16le'];
     let text = '';
-    if (uint8[0] === 0xEF && uint8[1] === 0xBB && uint8[2] === 0xBF) {
-      // UTF-8 with BOM
+    let decoded = false;
+
+    // Kiểm tra BOM UTF-8
+    if (uint8[0]===0xEF && uint8[1]===0xBB && uint8[2]===0xBF) {
       text = new TextDecoder('utf-8').decode(buffer);
-    } else {
-      // Thử UTF-8 trước
-      const utf8Text = new TextDecoder('utf-8').decode(buffer);
-      // Kiểm tra có ký tự lỗi không (replacement character)
-      if (utf8Text.includes('\uFFFD')) {
-        // Bị lỗi → thử Windows-1252 (encoding mặc định của Excel VN)
-        text = new TextDecoder('windows-1252').decode(buffer);
-      } else {
-        text = utf8Text;
-      }
+      decoded = true;
+    }
+    // Kiểm tra BOM UTF-16 LE
+    if (!decoded && uint8[0]===0xFF && uint8[1]===0xFE) {
+      text = new TextDecoder('utf-16le').decode(buffer);
+      decoded = true;
     }
 
-    // ── Phần xử lý CSV (giữ nguyên như cũ từ đây) ──
+    if (!decoded) {
+      // Thử từng encoding, chọn cái nào ít ký tự lỗi nhất
+      let bestText = '';
+      let bestScore = Infinity;
+      for (const enc of encodings) {
+        try {
+          const t = new TextDecoder(enc, {fatal: false}).decode(buffer);
+          // Đếm ký tự replacement (lỗi)
+          const score = (t.match(/\uFFFD/g)||[]).length;
+          if (score < bestScore) {
+            bestScore = score;
+            bestText = t;
+          }
+        } catch(e) {}
+      }
+      text = bestText;
+    }
+
+    // Xử lý CSV
     const sep = text.includes('\t') ? '\t' : ',';
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    const lines = text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) { alert('File CSV phải có ít nhất 1 dòng dữ liệu!'); return; }
 
-    const headers = lines[0].split(sep).map(h => h.trim().replace(/^\uFEFF/, '').toLowerCase());
+    const headers = lines[0].split(sep).map(h => h.trim().toLowerCase());
     const tenIdx  = headers.indexOf('ten');
     const bpIdx   = headers.indexOf('bo_phan');
     if (tenIdx === -1) { alert('Thiếu cột "ten" trong file CSV!'); return; }
@@ -803,7 +818,6 @@ window._readCSV = function(input) {
       const bpTen = cols[bpIdx]   || '';
       if (!ten) { warns.push(`Dòng ${i+1}: Bỏ qua vì thiếu tên`); continue; }
 
-      // So sánh tên bộ phận không phân biệt hoa thường + trim
       const bp = S.boPhan.find(b =>
         b.ten_bo_phan.trim().toLowerCase() === bpTen.trim().toLowerCase()
       );
@@ -813,18 +827,17 @@ window._readCSV = function(input) {
 
       _importRows.push({
         ten,
-        ma_nv    : maIdx   >= 0 ? cols[maIdx]   || '' : '',
-        bo_phan_id : bp?.id || '',
+        ma_nv      : maIdx   >= 0 ? cols[maIdx]  || '' : '',
+        bo_phan_id : bp?.id  || '',
         bo_phan_ten: bpTen,
-        chuc_vu  : cvIdx   >= 0 ? cols[cvIdx]   || '' : '',
-        ngay_vao : ngayIdx >= 0 ? cols[ngayIdx]  || '' : '',
-        phep_nam : parseInt(pnIdx >= 0 ? cols[pnIdx] : '') || 12,
-        phep_con : parseInt(pcIdx >= 0 ? cols[pcIdx] : '') || 12,
+        chuc_vu    : cvIdx   >= 0 ? cols[cvIdx]  || '' : '',
+        ngay_vao   : ngayIdx >= 0 ? cols[ngayIdx] || '' : '',
+        phep_nam   : parseInt(pnIdx >= 0 ? cols[pnIdx] : '') || 12,
+        phep_con   : parseInt(pcIdx >= 0 ? cols[pcIdx] : '') || 12,
         _ok: !!bp
       });
     }
 
-    // Render preview (giữ nguyên như cũ)
     document.getElementById('import-preview').style.display = 'block';
     document.getElementById('import-count-badge').textContent = `${_importRows.length} nhân viên`;
     document.getElementById('import-thead').innerHTML = `<tr>${
@@ -853,8 +866,6 @@ window._readCSV = function(input) {
     }
     document.getElementById('import-confirm-btn').style.display = _importRows.length ? 'block' : 'none';
   };
-
-  // Đọc dưới dạng ArrayBuffer thay vì Text
   reader.readAsArrayBuffer(file);
 };
    
