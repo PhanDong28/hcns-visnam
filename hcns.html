@@ -750,46 +750,113 @@ window._downloadTemplate=function(){
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mau_import_nhansu.csv';a.click();
 };
-window._readCSV=function(input){
-  const file=input.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    const text=e.target.result;
-    // Tự động detect separator
-    const sep=text.includes('\t')?'\t':',';
-    const lines=text.split(/\r?\n/).filter(l=>l.trim());
-    if(lines.length<2){alert('File CSV phải có ít nhất 1 dòng dữ liệu!');return;}
-    const headers=lines[0].split(sep).map(h=>h.trim().replace(/^\uFEFF/,'').toLowerCase());
-    const tenIdx=headers.indexOf('ten');
-    const bpIdx=headers.indexOf('bo_phan');
-    if(tenIdx===-1){alert('Thiếu cột "ten" trong file CSV!');return;}
-    if(bpIdx===-1){alert('Thiếu cột "bo_phan" trong file CSV!');return;}
-    const maIdx=headers.indexOf('ma_nv');
-    const cvIdx=headers.indexOf('chuc_vu');
-    const ngayIdx=headers.indexOf('ngay_vao');
-    const pnIdx=headers.indexOf('phep_nam');
-    const pcIdx=headers.indexOf('phep_con');
-    _importRows=[];
-    const warns=[];
-    for(let i=1;i<lines.length;i++){
-      const cols=lines[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,''));
-      const ten=cols[tenIdx]||'';
-      const bpTen=cols[bpIdx]||'';
-      if(!ten){warns.push(`Dòng ${i+1}: Bỏ qua vì thiếu tên`);continue;}
-      const bp=S.boPhan.find(b=>b.ten_bo_phan.toLowerCase()===bpTen.toLowerCase());
-      if(!bp){warns.push(`Dòng ${i+1}: Bộ phận "${bpTen}" không tồn tại trong hệ thống — sẽ để trống`);} 
+window._readCSV = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  // Đọc dưới dạng ArrayBuffer để tự detect encoding
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const buffer = e.target.result;
+    const uint8 = new Uint8Array(buffer);
+
+    // Kiểm tra BOM để biết encoding
+    let text = '';
+    if (uint8[0] === 0xEF && uint8[1] === 0xBB && uint8[2] === 0xBF) {
+      // UTF-8 with BOM
+      text = new TextDecoder('utf-8').decode(buffer);
+    } else {
+      // Thử UTF-8 trước
+      const utf8Text = new TextDecoder('utf-8').decode(buffer);
+      // Kiểm tra có ký tự lỗi không (replacement character)
+      if (utf8Text.includes('\uFFFD')) {
+        // Bị lỗi → thử Windows-1252 (encoding mặc định của Excel VN)
+        text = new TextDecoder('windows-1252').decode(buffer);
+      } else {
+        text = utf8Text;
+      }
+    }
+
+    // ── Phần xử lý CSV (giữ nguyên như cũ từ đây) ──
+    const sep = text.includes('\t') ? '\t' : ',';
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) { alert('File CSV phải có ít nhất 1 dòng dữ liệu!'); return; }
+
+    const headers = lines[0].split(sep).map(h => h.trim().replace(/^\uFEFF/, '').toLowerCase());
+    const tenIdx  = headers.indexOf('ten');
+    const bpIdx   = headers.indexOf('bo_phan');
+    if (tenIdx === -1) { alert('Thiếu cột "ten" trong file CSV!'); return; }
+    if (bpIdx  === -1) { alert('Thiếu cột "bo_phan" trong file CSV!'); return; }
+
+    const maIdx   = headers.indexOf('ma_nv');
+    const cvIdx   = headers.indexOf('chuc_vu');
+    const ngayIdx = headers.indexOf('ngay_vao');
+    const pnIdx   = headers.indexOf('phep_nam');
+    const pcIdx   = headers.indexOf('phep_con');
+
+    _importRows = [];
+    const warns = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
+      const ten   = cols[tenIdx]  || '';
+      const bpTen = cols[bpIdx]   || '';
+      if (!ten) { warns.push(`Dòng ${i+1}: Bỏ qua vì thiếu tên`); continue; }
+
+      // So sánh tên bộ phận không phân biệt hoa thường + trim
+      const bp = S.boPhan.find(b =>
+        b.ten_bo_phan.trim().toLowerCase() === bpTen.trim().toLowerCase()
+      );
+      if (!bp) {
+        warns.push(`Dòng ${i+1}: Bộ phận "${bpTen}" không khớp → để trống`);
+      }
+
       _importRows.push({
         ten,
-        ma_nv:maIdx>=0?cols[maIdx]||'':'',
-        bo_phan_id:bp?.id||'',
-        bo_phan_ten:bpTen,
-        chuc_vu:cvIdx>=0?cols[cvIdx]||'':'',
-        ngay_vao:ngayIdx>=0?cols[ngayIdx]||'':'',
-        phep_nam:parseInt(pnIdx>=0?cols[pnIdx]:'')||12,
-        phep_con:parseInt(pcIdx>=0?cols[pcIdx]:'')||12,
-        _ok:!!bp
+        ma_nv    : maIdx   >= 0 ? cols[maIdx]   || '' : '',
+        bo_phan_id : bp?.id || '',
+        bo_phan_ten: bpTen,
+        chuc_vu  : cvIdx   >= 0 ? cols[cvIdx]   || '' : '',
+        ngay_vao : ngayIdx >= 0 ? cols[ngayIdx]  || '' : '',
+        phep_nam : parseInt(pnIdx >= 0 ? cols[pnIdx] : '') || 12,
+        phep_con : parseInt(pcIdx >= 0 ? cols[pcIdx] : '') || 12,
+        _ok: !!bp
       });
     }
+
+    // Render preview (giữ nguyên như cũ)
+    document.getElementById('import-preview').style.display = 'block';
+    document.getElementById('import-count-badge').textContent = `${_importRows.length} nhân viên`;
+    document.getElementById('import-thead').innerHTML = `<tr>${
+      ['Tên','Mã NV','Bộ phận','Chức vụ','Ngày vào','Phép/năm','Phép còn']
+      .map(h=>`<th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;white-space:nowrap">${h}</th>`)
+      .join('')}</tr>`;
+    document.getElementById('import-tbody').innerHTML = _importRows.map(r=>`
+      <tr style="background:${r._ok?'#fff':'#fffbeb'}">
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;font-size:12px">${r.ten}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.ma_nv||'—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px">
+          <span style="padding:2px 8px;border-radius:20px;font-size:11px;${r._ok?'background:#eff6ff;color:#1e4d8c':'background:#fef9ec;color:#b45309'}">${r.bo_phan_ten||'—'}</span>
+        </td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.chuc_vu||'—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b">${r.ngay_vao||'—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">${r.phep_nam}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">${r.phep_con}</td>
+      </tr>`).join('');
+
+    const warnEl = document.getElementById('import-warn');
+    if (warns.length) {
+      warnEl.style.display = 'block';
+      warnEl.innerHTML = '⚠️ Lưu ý:<br>' + warns.join('<br>');
+    } else {
+      warnEl.style.display = 'none';
+    }
+    document.getElementById('import-confirm-btn').style.display = _importRows.length ? 'block' : 'none';
+  };
+
+  // Đọc dưới dạng ArrayBuffer thay vì Text
+  reader.readAsArrayBuffer(file);
+};
     // Render preview
     document.getElementById('import-preview').style.display='block';
     document.getElementById('import-count-badge').textContent=`${_importRows.length} nhân viên`;
@@ -811,7 +878,8 @@ window._readCSV=function(input){
     else{warnEl.style.display='none';}
     document.getElementById('import-confirm-btn').style.display=_importRows.length?'block':'none';
   };
-  reader.readAsText(file,'UTF-8');
+  reader.onload = function(e) { /* giữ nguyên nội dung xử lý */ };
+  reader.readAsText(file, 'UTF-8');
 };
 window._doImport=async function(){
   if(!_importRows.length)return;
