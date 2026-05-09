@@ -165,7 +165,12 @@ const auth=getAuth(app);
 let authResolved=false;
 setTimeout(()=>{if(!authResolved){hideLoading();renderLogin();}},6000);
 
-let S={user:null,page:'chamcong',boPhan:[],nhanVien:[],chamCong:{},ngayLe:[],selectedBoPhan:null,selectedThang:new Date().getMonth()+1,selectedNam:new Date().getFullYear(),_nvBpFilter:'',_nvSearch:''};
+let S={
+  user:null,
+  page:'chamcong',
+  boPhan:[],
+  nhanVien:[],
+  quyTac:[],       
 
 const KY_HIEU=[
   {ma:'X',   label:'X',   ten:'1 ngày công',        mau:'#22c55e',text:'#fff'},
@@ -190,6 +195,47 @@ function khStyle(ma){const k=KY_HIEU.find(x=>x.ma===ma);if(!k||!ma)return 'backg
 function tinhCong(ma){return({X:1,'X/2':.5,CT:1,P:1,'P/2':.5,NL:1,KL:0,'N/P':.5,TS:0,NB:0,NV:0,ĐT:1,ĐP:1,VS:1,KVS:1})[ma]??0;}
 function tinhPhep(ma){return ma==='P'?1:(ma==='P/2'||ma==='N/P')?.5:0;}
 
+// Hàm 1: Tính công chuẩn tháng (T2→T7, trừ ngày lễ)
+function tinhCongChuan(thang,nam){
+  const dim=new Date(nam,thang,0).getDate();
+  let chuan=0;
+  for(let d=1;d<=dim;d++){
+    const dw=new Date(nam,thang-1,d).getDay();
+    if(dw===0)continue; // Bỏ chủ nhật
+    const ngayStr=`${nam}-${String(thang).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isHL=S.ngayLe.some(l=>l.ngay===ngayStr);
+    if(!isHL)chuan++;
+  }
+  return chuan;
+}
+
+// Hàm 2: Tính công thực tế (áp dụng quy tắc vi phạm)
+function tinhCongThucTe(nvId){
+  const {selectedThang:th,selectedNam:nam}=S;
+  const dim=new Date(nam,th,0).getDate();
+  const days=[...Array(dim).keys()].map(i=>i+1);
+  const demKH={};
+  let tongCong=0;
+  days.forEach(d=>{
+    const ma=S.chamCong[`${nvId}_${d}`]?.ky_hieu||'';
+    tongCong+=tinhCong(ma);
+    if(ma)demKH[ma]=(demKH[ma]||0)+1;
+  });
+  let truThem=0;
+  const chiTiet=[];
+  S.quyTac.filter(q=>q.ap_dung).forEach(q=>{
+    const soLan=demKH[q.ky_hieu]||0;
+    if(q.so_lan_nguong>0&&soLan>=q.so_lan_nguong){
+      const lanVuot=Math.floor(soLan/q.so_lan_nguong);
+      const truLan=lanVuot*q.tru_cong;
+      truThem+=truLan;
+      chiTiet.push(`${q.ky_hieu}:${soLan}lần→-${truLan}công`);
+    }
+  });
+  const gioTruc=S.chamCong[`truc_${nvId}`]?.gio_truc||0;
+  return{tongCong,truThem,congTruc:gioTruc/8,thucTe:tongCong-truThem+(gioTruc/8),chiTiet};
+}
+
 function hideLoading(){const el=document.getElementById('loading');if(el)el.style.display='none';}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
@@ -202,7 +248,7 @@ onAuthStateChanged(auth,user=>{
 
 async function initApp(){
   try{
-    await Promise.all([loadBoPhan(),loadNhanVien(),loadChamCong(),loadNgayLe()]);
+   await Promise.all([loadBoPhan(),loadNhanVien(),loadChamCong(),loadNgayLe(),loadQuyTac()]);
   }catch(e){console.warn('Load error:',e);}
   hideLoading();
   render();
@@ -212,6 +258,13 @@ async function loadBoPhan(){const snap=await getDocs(query(collection(db,'bo_pha
 async function loadNhanVien(){const snap=await getDocs(collection(db,'nhan_vien'));S.nhanVien=snap.docs.map(d=>({id:d.id,...d.data()}));}
 async function loadChamCong(){const key=`${S.selectedNam}-${String(S.selectedThang).padStart(2,'0')}`;try{const snap=await getDocs(collection(db,`cham_cong/${key}/records`));S.chamCong={};snap.docs.forEach(d=>{S.chamCong[d.id]=d.data();});}catch(e){S.chamCong={};}}
 async function loadNgayLe(){const snap=await getDocs(collection(db,'ngay_le'));S.ngayLe=snap.docs.map(d=>({id:d.id,...d.data()}));}
+
+async function loadQuyTac(){
+  try{
+    const snap=await getDocs(collection(db,'quy_tac'));
+    S.quyTac=snap.docs.map(d=>({id:d.id,...d.data()}));
+  }catch(e){S.quyTac=[];}
+}
 async function saveTruc(nvId, gioTruc){
   const key=`${S.selectedNam}-${String(S.selectedThang).padStart(2,'0')}`;
   const k=`truc_${nvId}`;
@@ -255,8 +308,21 @@ window._login=async function(){
 
 // ── MAIN ──
 function render(){
-  const titles={chamcong:'Bảng chấm công',nhanvien:'Quản lý nhân viên',bophan:'Quản lý bộ phận',ngayle:'Ngày lễ & phép năm',baocao:'Báo cáo tháng'};
-  const menu=[{id:'chamcong',icon:'📅',label:'Chấm công'},{id:'nhanvien',icon:'👥',label:'Nhân viên'},{id:'bophan',icon:'🏢',label:'Bộ phận'},{id:'ngayle',icon:'🎌',label:'Ngày lễ'},{id:'baocao',icon:'📊',label:'Báo cáo'}];
+  const titles={
+  chamcong:'Bảng chấm công',
+  nhanvien:'Quản lý nhân viên',
+  bophan:'Quản lý bộ phận',
+  ngayle:'Ngày lễ & phép năm',
+  baocao:'Báo cáo tháng',
+  quytac:'Quy tắc tính công'   
+};
+  const menu=[
+  {id:'chamcong',icon:'📅',label:'Chấm công'},
+  {id:'nhanvien',icon:'👥',label:'Nhân viên'},
+  {id:'bophan',icon:'🏢',label:'Bộ phận'},
+  {id:'ngayle',icon:'🎌',label:'Ngày lễ'},
+  {id:'baocao',icon:'📊',label:'Báo cáo'},
+  {id:'quytac',icon:'⚙️',label:'Quy tắc công'}   
   document.getElementById('app').innerHTML=`
   <div class="layout">
     <aside class="sidebar">
@@ -291,6 +357,7 @@ function renderPage(){
   if(S.page==='bophan')return pgBoPhan();
   if(S.page==='ngayle')return pgNgayLe();
   if(S.page==='baocao')return pgBaoCao();
+  if(S.page==='quytac')return pgQuyTac();
   return '';
 }
 function rePb(){document.getElementById('pb').innerHTML=renderPage();}
@@ -328,8 +395,9 @@ const rows=nvs.map(nv=>{
   // Lấy giờ trực đã lưu
   const trucKey = `truc_${nv.id}`;
   const gioTruc = S.chamCong[trucKey]?.gio_truc || 0;
-  const congTruc = gioTruc / 8;
-  const tongCongTinh = tong + congTruc;
+  const {thucTe, truThem, chiTiet} = tinhCongThucTe(nv.id);
+  const tongCongTinh = thucTe;
+  const tooltipTru = truThem > 0 ? `Trừ vi phạm: -${truThem} công\n${chiTiet.join('\n')}` : '';
 
   return`<tr>
     <td class="nv-name-cell">${nv.ten}</td>
@@ -347,7 +415,10 @@ const rows=nvs.map(nv=>{
         onclick="event.stopPropagation()"
       />
     </td>
-    <td class="sum-cell" style="color:#7c3aed;font-size:13px;font-weight:700">${tongCongTinh.toFixed(2).replace(/\.00$/,'')}</td>
+    <td class="sum-cell" style="color:#7c3aed;font-size:13px;font-weight:700" title="${tooltipTru}">
+  ${tongCongTinh.toFixed(2).replace(/\.00$/,'')}
+  ${truThem>0?`<div style="font-size:10px;color:#ef4444">-${truThem}VP</div>`:''}
+</td>
   </tr>`;
 }).join('');
   return`<div class="cc-wrap">
@@ -883,6 +954,189 @@ window._doImport=async function(){
   }
   showToast(`Đã nhập ${ok} nhân viên thành công ✓`);
   rePb();
+};
+
+  // ══════════════════════════════
+// TRANG QUY TẮC CÔNG
+// ══════════════════════════════
+function pgQuyTac(){
+  const {selectedThang:th,selectedNam:nam}=S;
+  const congChuan=tinhCongChuan(th,nam);
+  const soNgayLe=S.ngayLe.filter(l=>l.ngay?.startsWith(`${nam}-${String(th).padStart(2,'0')}`)).length;
+  const thOpts=Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}" ${m===th?'selected':''}>Tháng ${m}/${nam}</option>`).join('');
+
+  const rows=S.quyTac.map(q=>`
+    <tr>
+      <td><span class="cc-badge" style="${khStyle(q.ky_hieu)}">${q.ky_hieu||'—'}</span></td>
+      <td style="font-weight:500">${q.ten}</td>
+      <td class="num">≥ ${q.so_lan_nguong} lần</td>
+      <td class="num" style="color:#ef4444">- ${q.tru_cong} công / lần vượt</td>
+      <td><span class="${q.ap_dung?'badge-green':'badge-red'}">${q.ap_dung?'Đang bật':'Đã tắt'}</span></td>
+      <td style="font-size:12px;color:#64748b">${q.ghi_chu||'—'}</td>
+      <td><div class="action-btns">
+        <button class="btn-edit" onclick="window._editQT('${q.id}')">Sửa</button>
+        <button class="btn-del" onclick="window._delQT('${q.id}')">Xóa</button>
+      </div></td>
+    </tr>`).join('');
+
+  const ed=S._editQT||{};
+  const khOpts=KY_HIEU.filter(k=>k.ma).map(k=>`<option value="${k.ma}" ${ed.ky_hieu===k.ma?'selected':''}>${k.ma} — ${k.ten}</option>`).join('');
+
+  return`<div class="qt-wrap">
+
+    <!-- Thẻ công chuẩn -->
+    <div style="background:#fff;border-radius:12px;padding:20px 24px;box-shadow:0 1px 3px rgba(0,0,0,.06)">
+      <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">📅 Công chuẩn theo tháng</div>
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <select class="sel-thang" onchange="window._selThang(this.value)">${thOpts}</select>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:42px;font-weight:800;color:#1e4d8c;line-height:1">${congChuan}</span>
+          <span style="font-size:14px;color:#64748b">ngày công chuẩn</span>
+        </div>
+        <div style="font-size:13px;color:#64748b;background:#f8fafc;border-radius:10px;padding:10px 16px;line-height:1.8">
+          🗓️ Làm <b>Thứ 2 → Thứ 7</b><br/>
+          🎌 Trừ <b>${soNgayLe} ngày lễ</b> trong tháng<br/>
+          ❌ Bỏ <b>Chủ nhật</b>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar quy tắc -->
+    <div class="qt-toolbar">
+      <div style="font-size:13px;color:#64748b;font-weight:500">
+        ${S.quyTac.length} quy tắc · ${S.quyTac.filter(q=>q.ap_dung).length} đang áp dụng
+      </div>
+      <button class="btn-primary" onclick="window._addQT()">+ Thêm quy tắc</button>
+    </div>
+
+    <!-- Bảng quy tắc -->
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;font-size:13px;color:#1e4d8c">
+      💡 <b>Cách hoạt động:</b> Khi nhân viên vi phạm đủ số lần ngưỡng trong tháng, hệ thống sẽ tự động trừ công khi tính <b>Tổng công tính</b>.
+      Ví dụ: Đặt "Đi trễ ≥ 2 lần → trừ 0.5 công" → nhân viên đi trễ 3 lần sẽ bị trừ 0.5 công (vượt ngưỡng 1 lần).
+    </div>
+
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr>
+        <th>Ký hiệu</th>
+        <th>Tên vi phạm</th>
+        <th>Ngưỡng trừ</th>
+        <th>Mức trừ</th>
+        <th>Trạng thái</th>
+        <th>Ghi chú / Công thức</th>
+        <th>Thao tác</th>
+      </tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" class="empty-cell">Chưa có quy tắc nào — Nhấn "+ Thêm quy tắc" để bắt đầu</td></tr>'}</tbody>
+    </table></div>
+
+  </div>
+
+  <!-- Modal thêm/sửa quy tắc -->
+  <div class="modal-overlay" id="qt-modal" style="display:${S._showQTM?'flex':'none'}" onclick="if(event.target.id==='qt-modal')window._closeQTF()">
+    <div class="modal-box modal-form" style="max-width:460px">
+      <div class="modal-header">
+        <span>${ed.id?'✏️ Sửa quy tắc':'➕ Thêm quy tắc vi phạm'}</span>
+        <button class="modal-close" onclick="window._closeQTF()">✕</button>
+      </div>
+      <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+
+        <div class="form-group">
+          <label>Ký hiệu vi phạm *</label>
+          <select id="qt-kh" style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;outline:none">
+            <option value="">-- Chọn ký hiệu --</option>
+            ${khOpts}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Tên quy tắc</label>
+          <input id="qt-ten" value="${ed.ten||''}" placeholder="VD: Đi trễ, Về sớm..."/>
+        </div>
+
+        <div style="background:#f8fafc;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:12px;font-weight:600;color:#475569">⚙️ Công thức tính</div>
+
+          <div class="form-group" style="margin:0">
+            <label>Số lần ngưỡng (vi phạm đủ số này mới bị trừ)</label>
+            <input type="number" id="qt-sl" value="${ed.so_lan_nguong||2}" min="1" max="31"
+              style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;outline:none"/>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">VD: nhập 2 = vi phạm từ 2 lần trở lên mới bị trừ</div>
+          </div>
+
+          <div class="form-group" style="margin:0">
+            <label>Số công trừ mỗi lần vượt ngưỡng</label>
+            <input type="number" id="qt-tru" value="${ed.tru_cong||0.5}" min="0.25" max="5" step="0.25"
+              style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;outline:none"/>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">VD: nhập 0.5 = mỗi lần vượt ngưỡng trừ thêm 0.5 công</div>
+          </div>
+
+          <div style="background:#eff6ff;border-radius:8px;padding:10px 12px;font-size:12px;color:#1e4d8c" id="qt-preview">
+            Ví dụ: Vi phạm 2 lần ngưỡng → trừ 0.5 công
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Trạng thái</label>
+          <select id="qt-ap" style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;outline:none">
+            <option value="true" ${ed.ap_dung!==false?'selected':''}>✅ Đang áp dụng</option>
+            <option value="false" ${ed.ap_dung===false?'selected':''}>⏸️ Tạm tắt</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Ghi chú thêm</label>
+          <input id="qt-note" value="${ed.ghi_chu||''}" placeholder="VD: Áp dụng từ tháng 6/2025"/>
+        </div>
+
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="window._closeQTF()">Huỷ</button>
+        <button class="btn-primary" onclick="window._saveQT()">💾 Lưu quy tắc</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Cập nhật preview công thức khi người dùng nhập
+document.addEventListener('input',function(e){
+  if(e.target.id==='qt-sl'||e.target.id==='qt-tru'){
+    const sl=parseInt(document.getElementById('qt-sl')?.value)||2;
+    const tru=parseFloat(document.getElementById('qt-tru')?.value)||0.5;
+    const prev=document.getElementById('qt-preview');
+    if(prev)prev.textContent=`📌 Ví dụ: Vi phạm đủ ${sl} lần → trừ ${tru} công. Vi phạm ${sl*2} lần → trừ ${tru*2} công.`;
+  }
+});
+
+window._addQT=function(){S._editQT={};S._showQTM=true;rePb();};
+window._editQT=function(id){S._editQT={...S.quyTac.find(q=>q.id===id)};S._showQTM=true;rePb();};
+window._closeQTF=function(){S._showQTM=false;S._editQT=null;rePb();};
+window._delQT=async function(id){
+  if(!confirm('Xóa quy tắc này?'))return;
+  await deleteDoc(doc(db,'quy_tac',id));
+  S.quyTac=S.quyTac.filter(q=>q.id!==id);
+  showToast('Đã xóa quy tắc');rePb();
+};
+window._saveQT=async function(){
+  const kh=document.getElementById('qt-kh').value;
+  if(!kh){alert('Vui lòng chọn ký hiệu vi phạm!');return;}
+  const sl=parseInt(document.getElementById('qt-sl').value)||2;
+  const tru=parseFloat(document.getElementById('qt-tru').value)||0.5;
+  const data={
+    ky_hieu:kh,
+    ten:document.getElementById('qt-ten').value.trim()||kh,
+    so_lan_nguong:sl,
+    tru_cong:tru,
+    ap_dung:document.getElementById('qt-ap').value==='true',
+    ghi_chu:document.getElementById('qt-note').value.trim()
+  };
+  if(S._editQT?.id){
+    await updateDoc(doc(db,'quy_tac',S._editQT.id),data);
+    S.quyTac=S.quyTac.map(q=>q.id===S._editQT.id?{...q,...data}:q);
+  }else{
+    const r=await addDoc(collection(db,'quy_tac'),data);
+    S.quyTac.push({id:r.id,...data});
+  }
+  S._showQTM=false;S._editQT=null;
+  showToast('Đã lưu quy tắc ✓');rePb();
 };
 </script>
 </body>
