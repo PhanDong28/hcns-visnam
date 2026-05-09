@@ -165,7 +165,7 @@ const auth=getAuth(app);
 let authResolved=false;
 setTimeout(()=>{if(!authResolved){hideLoading();renderLogin();}},6000);
 
-let S={
+
 let S={
   user:null,
   page:'chamcong',
@@ -325,13 +325,14 @@ function render(){
   baocao:'Báo cáo tháng',
   quytac:'Quy tắc tính công'   
 };
-  const menu=[
+const menu=[
   {id:'chamcong',icon:'📅',label:'Chấm công'},
   {id:'nhanvien',icon:'👥',label:'Nhân viên'},
   {id:'bophan',icon:'🏢',label:'Bộ phận'},
   {id:'ngayle',icon:'🎌',label:'Ngày lễ'},
   {id:'baocao',icon:'📊',label:'Báo cáo'},
-  {id:'quytac',icon:'⚙️',label:'Quy tắc công'}   
+  {id:'quytac',icon:'⚙️',label:'Quy tắc công'}
+  ];
   document.getElementById('app').innerHTML=`
   <div class="layout">
     <aside class="sidebar">
