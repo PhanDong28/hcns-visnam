@@ -166,11 +166,20 @@ let authResolved=false;
 setTimeout(()=>{if(!authResolved){hideLoading();renderLogin();}},6000);
 
 let S={
+let S={
   user:null,
   page:'chamcong',
   boPhan:[],
   nhanVien:[],
-  quyTac:[],       
+  chamCong:{},
+  ngayLe:[],
+  quyTac:[],
+  selectedBoPhan:null,
+  selectedThang:new Date().getMonth()+1,
+  selectedNam:new Date().getFullYear(),
+  _nvBpFilter:'',
+  _nvSearch:''
+};
 
 const KY_HIEU=[
   {ma:'X',   label:'X',   ten:'1 ngày công',        mau:'#22c55e',text:'#fff'},
