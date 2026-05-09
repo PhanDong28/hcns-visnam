@@ -388,7 +388,7 @@ function pgChamCong(){
   const nvs=S.nhanVien.filter(n=>n.bo_phan_id===sbp);
   const thOpts=Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}" ${m===th?'selected':''}>${String(m).padStart(2,'0')}/${nam}</option>`).join('');
   const bpTabs=S.boPhan.map(b=>`<button class="bp-tab ${sbp===b.id?'active':''}" onclick="window._selBP('${b.id}')">${b.ten_bo_phan}</button>`).join('');
-  const dayHdrs=days.map(d=>{const dw=new Date(nam,th-1,d).getDay();const isWE=dw===0||dw===6;const isHL=S.ngayLe.some(l=>l.ngay===`${nam}-${String(th).padStart(2,'0')}-${String(d).padStart(2,'0')}`);const lbl=['CN','T2','T3','T4','T5','T6','T7'][dw];return`<th class="day-header ${isWE?'weekend':''} ${isHL?'holiday':''}" title="${lbl}">${d}</th>`;}).join('');
+  const dayHdrs=days.map(d=>{const dw=new Date(nam,th-1,d).getDay();const isWE = dw===0;const isHL=S.ngayLe.some(l=>l.ngay===`${nam}-${String(th).padStart(2,'0')}-${String(d).padStart(2,'0')}`);const lbl=['CN','T2','T3','T4','T5','T6','T7'][dw];return`<th class="day-header ${isWE?'weekend':''} ${isHL?'holiday':''}" title="${lbl}">${d}</th>`;}).join('');
 const rows=nvs.map(nv=>{
   let tong=0,phep=0,vang=0,vp=0;
   const cells=days.map(d=>{
@@ -542,8 +542,9 @@ window._saveTruc=async function(nvId, val){
       const k=`${nv.id}_${d}`;if(S.chamCong[k])continue;
       const dw=new Date(S.selectedNam,S.selectedThang-1,d).getDay();
       const isHL=S.ngayLe.some(l=>l.ngay===`${S.selectedNam}-${String(S.selectedThang).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
-      const isWE=dw===0||dw===6;
-      await saveCC(nv.id,d,isHL?'NL':isWE?'KL':'X');
+      // ĐÚNG — chỉ bỏ Chủ nhật
+      const isCN = dw===0;
+      await saveCC(nv.id, d, isHL?'NL' : isCN?'KL' : 'X');
     }
   }
   showToast('Đã điền xong ✓');rePb();
